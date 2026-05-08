@@ -1,4 +1,4 @@
-const CACHE = 'rouduku-v3';
+const CACHE = 'rouduku-v4';
 const ASSETS = [
     './',
     './index.html',
