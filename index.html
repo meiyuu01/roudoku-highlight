@@ -835,7 +835,7 @@
                 sampleBackup = editor.value;
                 editor.value = SAMPLE_TEXT;
                 sampleBtn.textContent = '原稿に戻る';
-                sampleBtn.dataset.tip = '原稿に戻る';
+                sampleBtn.dataset.tip = '使い方を見る前の原稿に戻す';
             } else {
                 // 「元に戻す」を押した：退避した内容を復帰
                 editor.value = sampleBackup;
@@ -852,7 +852,7 @@
             if (sampleBackup !== null) {
                 sampleBackup = null;
                 const sampleBtn = document.getElementById('sampleBtn');
-                sampleBtn.textContent = 'サンプル';
+                sampleBtn.textContent = '使い方';
                 sampleBtn.dataset.tip = 'サンプル原稿を読み込む（今の原稿は退避されます）';
             }
         });
