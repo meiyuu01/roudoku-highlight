@@ -80,7 +80,11 @@
         .pane {
             flex: 1;
             padding: 24px;
-            overflow-y: auto;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+
         }
 
         .pane.editor {
@@ -94,6 +98,7 @@
             margin-bottom: 16px;
             align-items: center;
             flex-wrap: wrap;
+            flex-shrink: 0;
         }
 
         .toolbar h2 {
@@ -133,7 +138,8 @@
 
         textarea {
             width: 100%;
-            height: calc(100% - 60px);
+            flex: 1;
+            min-height: 0;
             border: 1px solid #e5e5e0;
             border-radius: 4px;
             padding: 16px;
@@ -145,17 +151,25 @@
             color: #222;
         }
 
+
         textarea:focus {
             outline: none;
             border-color: #888;
         }
 
         .preview-content {
-            font-size: 18px;
-            line-height: 2.2;
-            padding: 8px;
+            font-size: 15px;
+            line-height: 1.8;
+            padding: 16px;
             white-space: pre-wrap;
+            border: 1px solid #e5e5e0;
+            border-radius: 4px;
+            background: #fff;
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
         }
+
 
         .preview-content ruby rt {
             font-size: 0.5em;
@@ -229,7 +243,7 @@
         }
 
         .player-text {
-            font-size: var(--font-size, 28px);
+            font-size: var(--font-size, 22px);
             line-height: 2.4;
             max-width: 800px;
             margin: 0 auto;
@@ -317,12 +331,18 @@
         }
 
         @media (max-width: 900px) {
+            .toolbar button {
+                padding: 5px 10px;
+                font-size: 12px;
+            }
+
             .app {
                 flex-direction: column;
             }
 
             .pane {
-                padding: 16px;
+                flex: 1;
+                min-height: 0;
             }
 
             .pane.editor {
@@ -331,7 +351,7 @@
             }
 
             textarea {
-                height: 200px;
+                flex: 1;
             }
 
             .player-content {
@@ -418,7 +438,7 @@
 
         let units = [];
         let currentIndex = 0;
-        let fontSize = 28;
+        let fontSize = 22;
         let isSpeaking = false;
 
         // ルビ記法を <ruby> に変換
@@ -686,20 +706,17 @@
             const dt = Date.now() - touchStartTime;
             const absX = Math.abs(dx), absY = Math.abs(dy);
 
-            // 時間制限を緩めに
             if (dt > 1000) return;
-            if (absX < 30 && absY < 30) return;
+            if (absX < 30) return;                       // 横の動きが30px未満は無視
+            if (absX < absY * 1.2) return;               // 縦の方が大きければ無視（スクロール優先）
 
             const isVertical = player.classList.contains('vertical');
+            if (isVertical) return;                      // 縦書き時は横スワイプも無効
 
-            if (absX > absY) {
-                // 横スワイプ：縦書きでも横書きでも、左方向で次へ
-                dx < 0 ? next() : prev();
-            } else {
-                // 縦スワイプ：上方向で次へ
-                dy < 0 ? next() : prev();
-            }
+            // 横書き：右スワイプで次、左スワイプで戻る
+            dx > 0 ? next() : prev();
         });
+
 
 
 
