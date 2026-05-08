@@ -7,6 +7,7 @@
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2a2a2a">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
     <style>
         * {
@@ -267,7 +268,37 @@
             font-size: 0.4em;
         }
 
-        /* 縦書き時の <br> は改行扱いになる（行が変わる）*/
+        @media (max-width: 700px) {
+            .app {
+                flex-direction: column;
+            }
+
+            .pane {
+                padding: 16px;
+            }
+
+            .pane.editor {
+                border-right: none;
+                border-bottom: 1px solid #e5e5e0;
+            }
+
+            textarea {
+                height: 200px;
+            }
+
+            .player-content {
+                padding: 40px 20px;
+            }
+
+            .player-text {
+                font-size: var(--font-size, 22px);
+                line-height: 2.0;
+            }
+
+            .hint {
+                font-size: 11px;
+            }
+        }
     </style>
 </head>
 
@@ -281,6 +312,10 @@
                 <button onclick="loadSample()">サンプル</button>
                 <button onclick="wrapRuby()" title="選択範囲をルビで囲む（Ctrl+Enter）">《ルビ》</button>
                 <button onclick="clearText()">クリア</button>
+                <button onclick="exportText()">保存</button>
+                <button onclick="document.getElementById('fileInput').click()">読込</button>
+                <input type="file" id="fileInput" accept=".txt" style="display:none" onchange="importText(event)">
+
             </div>
             <textarea id="editor" placeholder="ここに原稿を貼り付けてください。
 ルビは 漢字《かんじ》 のように《》で振れます。
@@ -576,6 +611,42 @@
             }
         });
 
+        // スワイプで前後移動
+        let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+        playerContent.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchStartTime = Date.now();
+        }, { passive: true });
+
+        playerContent.addEventListener('touchend', (e) => {
+            const dx = e.changedTouches[0].clientX - touchStartX;
+            const dy = e.changedTouches[0].clientY - touchStartY;
+            const dt = Date.now() - touchStartTime;
+            const absX = Math.abs(dx), absY = Math.abs(dy);
+
+            // 短時間・一定距離以上をスワイプとみなす（タップやスクロールと区別）
+            if (dt > 500) return;
+            if (absX < 40 && absY < 40) return;
+
+            const isVertical = player.classList.contains('vertical');
+
+            if (absX > absY) {
+                // 横スワイプ
+                if (isVertical) {
+                    // 縦書き：右→左で次へ（読む方向と同じ）
+                    dx < 0 ? next() : prev();
+                } else {
+                    // 横書き：左→右で戻る、右→左で次へ
+                    dx < 0 ? next() : prev();
+                }
+            } else {
+                // 縦スワイプ：下に行くほど「次へ」
+                dy < 0 ? next() : prev();
+            }
+        });
+
+
         // 自動保存
         let saveTimer;
         function showSaved() {
@@ -676,7 +747,7 @@
         function stopSpeak() {
             isSpeaking = false;
             speechSynthesis.cancel();
-            document.getElementById('speakBtn').textContent = '🔊 読み上げ';
+            document.getElementById('speakBtn').textContent = '読み上げ';
         }
 
 
@@ -727,6 +798,33 @@
             });
         }
     </script>
+    <script>
+        function exportText() {
+            const blob = new Blob([editor.value], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '原稿_' + new Date().toISOString().slice(0, 10) + '.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importText(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                editor.value = ev.target.result;
+                updatePreview();
+                localStorage.setItem(STORAGE_KEY, editor.value);
+                showToast('読み込みました');
+            };
+            reader.readAsText(file, 'utf-8');
+            e.target.value = ''; // 同じファイルを再選択できるように
+        }
+
+    </script>
+
 
 </body>
 
