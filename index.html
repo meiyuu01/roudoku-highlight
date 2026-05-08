@@ -10,6 +10,54 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
     <style>
+        /* ツールチップ */
+        [data-tip] {
+            position: relative;
+        }
+
+        [data-tip]:hover::after,
+        [data-tip]:focus-visible::after {
+            content: attr(data-tip);
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #2a2a2a;
+            color: #fff;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            white-space: nowrap;
+            z-index: 10;
+            pointer-events: none;
+            animation: tipIn 0.15s ease-out;
+        }
+
+        [data-tip]:hover::before,
+        [data-tip]:focus-visible::before {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-bottom-color: #2a2a2a;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        @keyframes tipIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-4px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -309,8 +357,9 @@
             <div class="toolbar">
                 <h2>原稿</h2>
                 <span class="save-status" id="saveStatus"></span>
-                <button onclick="loadSample()">サンプル</button>
-                <button onclick="wrapRuby()" title="選択範囲をルビで囲む（Ctrl+Enter）">《ルビ》</button>
+                <button id="sampleBtn" onclick="loadSample()" data-tip="サンプル原稿を読み込む（今の原稿は退避されます）">使い方</button>
+
+                <button onclick="wrapRuby()" data-tip="選択範囲をルビで囲む（Ctrl+Enter）">《ルビ》</button>
                 <button onclick="clearText()">クリア</button>
                 <button onclick="exportText()">保存</button>
                 <button onclick="document.getElementById('fileInput').click()">読込</button>
@@ -682,12 +731,15 @@
 
 
         function clearText() {
-            if (confirm('原稿を消去します。よろしいですか？')) {
-                editor.value = '';
-                localStorage.removeItem(STORAGE_KEY);
-                updatePreview();
+            if (!editor.value) return;  // すでに空なら何もしない
+            if (confirm('原稿を消去します。よろしいですか？\n（Ctrl+Z で元に戻せます）')) {
+                editor.focus();
+                editor.select();  // 全選択
+                document.execCommand('insertText', false, '');  // 空で置換
+                // localStorage は input イベントで自動更新されるので不要
             }
         }
+
 
         const toast = document.getElementById('toast');
         let toastTimer;
@@ -756,10 +808,9 @@
             return s.replace(/\s+$/, '');
         }
 
+        let sampleBackup = null; // サンプル前の原稿を退避
 
-
-        function loadSample() {
-            editor.value = `【使い方】
+        const SAMPLE_TEXT = `【使い方】
 ・原稿を貼り付けて「▶ 再生モード」へ
 ・Space / → / ↓ で次へ、← / ↑ で戻る、Esc で終了
 ・文をクリックでその位置にジャンプ
@@ -775,9 +826,36 @@
 或日《あるひ》の暮方の事である。一人の下人《げにん》が、羅生門《らしょうもん》の下で雨やみを待っていた。
 広い門の下には、この男のほかに誰もいない。ただ、所々丹塗《にぬり》の剥げた、大きな円柱《まるばしら》に、蟋蟀《きりぎりす》が一匹とまっている。
 羅生門が、朱雀大路《すざくおおじ》にある以上は、この男のほかにも、雨やみをする市女笠《いちめがさ》や揉烏帽子《もみえぼし》が、もう二三人はありそうなものである。それが、この男のほかには誰もいない。`;
+
+        function loadSample() {
+            const sampleBtn = document.getElementById('sampleBtn');
+
+            if (sampleBackup === null) {
+                // 「サンプル」を押した：今の内容を退避してサンプルを表示
+                sampleBackup = editor.value;
+                editor.value = SAMPLE_TEXT;
+                sampleBtn.textContent = '原稿に戻る';
+                sampleBtn.dataset.tip = '原稿に戻る';
+            } else {
+                // 「元に戻す」を押した：退避した内容を復帰
+                editor.value = sampleBackup;
+                sampleBackup = null;
+                sampleBtn.textContent = '使い方';
+                sampleBtn.dataset.tip = 'サンプル原稿を読み込む（今の原稿は退避されます）';
+            }
             updatePreview();
             localStorage.setItem(STORAGE_KEY, editor.value);
         }
+
+        // 編集されたらトグル状態を解除（戻すボタンを通常に戻す）
+        editor.addEventListener('input', () => {
+            if (sampleBackup !== null) {
+                sampleBackup = null;
+                const sampleBtn = document.getElementById('sampleBtn');
+                sampleBtn.textContent = 'サンプル';
+                sampleBtn.dataset.tip = 'サンプル原稿を読み込む（今の原稿は退避されます）';
+            }
+        });
 
 
         // 起動時：保存済みがあれば復元、なければサンプル
