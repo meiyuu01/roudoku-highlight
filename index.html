@@ -84,7 +84,6 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
-
         }
 
         .pane.editor {
@@ -144,13 +143,12 @@
             border-radius: 4px;
             padding: 16px;
             font-size: 15px;
-            line-height: 1.8;
+            line-height: 27px;
             font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
             resize: none;
             background: #fff;
             color: #222;
         }
-
 
         textarea:focus {
             outline: none;
@@ -158,8 +156,9 @@
         }
 
         .preview-content {
+            position: relative;
             font-size: 15px;
-            line-height: 1.8;
+            line-height: 27px;
             padding: 16px;
             white-space: pre-wrap;
             border: 1px solid #e5e5e0;
@@ -169,7 +168,6 @@
             overflow-y: auto;
             min-height: 0;
         }
-
 
         .preview-content ruby rt {
             font-size: 0.5em;
@@ -309,7 +307,6 @@
         }
 
         .player.vertical .player-content {
-            /* 縦書きでは横スクロールに */
             overflow-x: auto;
             overflow-y: hidden;
             padding: max(48px, 8vh) 80px;
@@ -325,27 +322,39 @@
             line-height: 1.9;
         }
 
+        .editor-mirror {
+            position: fixed;
+            left: -99999px;
+            top: 0;
+            visibility: hidden;
+            pointer-events: none;
+            box-sizing: border-box;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .editor-mirror-line,
         .preview-line {
             display: block;
-            /* 行ごとにブロック化 */
-            padding: 0 4px;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .preview-line {
             border-radius: 2px;
             transition: background 0.15s;
-            min-height: 1em;
         }
 
         .preview-line.cursor {
             background: rgba(255, 220, 100, 0.25);
-            /* カーソル行：薄い黄色 */
         }
 
         .preview-line.selected {
             background: rgba(100, 180, 255, 0.25);
-            /* 選択範囲：薄い青 */
         }
 
-
-        /* 縦書き時はルビが行の右に出るので調整 */
         .player.vertical .player-text ruby rt {
             font-size: 0.4em;
         }
@@ -392,6 +401,7 @@
 
 <body>
     <div id="toast" class="toast"></div>
+
     <div class="app">
         <div class="pane editor">
             <div class="toolbar">
@@ -404,7 +414,6 @@
                 <button onclick="exportText()">保存</button>
                 <button onclick="document.getElementById('fileInput').click()">読込</button>
                 <input type="file" id="fileInput" accept=".txt" style="display:none" onchange="importText(event)">
-
             </div>
             <textarea id="editor" placeholder="ここに原稿を貼り付けてください。
 ルビは 漢字《かんじ》 のように《》で振れます。
@@ -443,6 +452,9 @@
         <div class="hint">Space / Enter / ↓ / → : 次へ　　↑ / ← : 戻る　　Esc : 終了</div>
     </div>
 
+    <!-- スクロール位置計測用の隠しミラー -->
+    <div id="editorMirror" class="editor-mirror" aria-hidden="true"></div>
+
     <script>
         const editor = document.getElementById('editor');
         const preview = document.getElementById('preview');
@@ -452,27 +464,127 @@
         const progress = document.getElementById('progress');
         const saveStatus = document.getElementById('saveStatus');
         const unitModeSel = document.getElementById('unitMode');
+        const editorMirror = document.getElementById('editorMirror');
 
         const STORAGE_KEY = 'rouduku_text_v4';
-        const SETTINGS_KEY = 'rouduku_settings_v5';
+        const SETTINGS_KEY = 'rouduku_settings_v6';
 
         let units = [];
         let currentIndex = 0;
         let fontSize = window.innerWidth <= 900 ? 16 : 21;
         let isSpeaking = false;
 
+        let mirrorDirty = true;
+        let syncPreviewRaf = 0;
+
+        function escapeHtml(s) {
+            return s
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
         // ルビ記法を <ruby> に変換
         function applyRuby(text) {
             text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            // ｜範囲《ふりがな》
             text = text.replace(/｜([^《\n]+)《([^》]+)》/g,
                 '<ruby>$1<rt>$2</rt></ruby>');
-            // 漢字の連続《ふりがな》
             text = text.replace(/([\p{Script=Han}々〆〇]+)《([^》]+)》/gu,
                 '<ruby>$1<rt>$2</rt></ruby>');
             return text;
         }
 
+        function rebuildEditorMirror() {
+            const cs = getComputedStyle(editor);
+
+            const borderX =
+                (parseFloat(cs.borderLeftWidth) || 0) +
+                (parseFloat(cs.borderRightWidth) || 0);
+
+            editorMirror.style.width = (editor.clientWidth + borderX) + 'px';
+            editorMirror.style.padding = cs.padding;
+            editorMirror.style.borderWidth = cs.borderWidth;
+            editorMirror.style.borderStyle = 'solid';
+            editorMirror.style.borderColor = 'transparent';
+            editorMirror.style.font = cs.font;
+            editorMirror.style.letterSpacing = cs.letterSpacing;
+            editorMirror.style.lineHeight = cs.lineHeight;
+            editorMirror.style.tabSize = cs.tabSize || '8';
+            editorMirror.style.textIndent = cs.textIndent;
+
+            const lines = editor.value.split('\n');
+            editorMirror.innerHTML = lines.map((line, i) =>
+                `<span class="editor-mirror-line" data-line="${i}">${line ? escapeHtml(line) : '&#8203;'}</span>`
+            ).join('');
+
+            mirrorDirty = false;
+        }
+
+        function ensureEditorMirror() {
+            if (mirrorDirty) rebuildEditorMirror();
+        }
+
+        function findVisibleLine(lineEls, y) {
+            let lo = 0;
+            let hi = lineEls.length - 1;
+            let idx = 0;
+
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const top = lineEls[mid].offsetTop;
+                const bottom = top + lineEls[mid].offsetHeight;
+
+                if (y < top) {
+                    hi = mid - 1;
+                } else if (y >= bottom) {
+                    idx = mid;
+                    lo = mid + 1;
+                } else {
+                    idx = mid;
+                    break;
+                }
+            }
+
+            const line = lineEls[idx];
+            const height = Math.max(1, line.offsetHeight);
+            const ratioInLine = Math.max(0, Math.min(1, (y - line.offsetTop) / height));
+
+            return { idx, ratioInLine };
+        }
+
+        function syncPreviewToEditorScroll() {
+            if (window.innerWidth <= 900) return;
+
+            ensureEditorMirror();
+
+            const mirrorLines = editorMirror.querySelectorAll('.editor-mirror-line');
+            if (!mirrorLines.length) {
+                preview.scrollTop = 0;
+                return;
+            }
+
+            const previewLines = preview.querySelectorAll('.preview-line');
+            if (!previewLines.length) {
+                preview.scrollTop = 0;
+                return;
+            }
+
+            const editorPadTop = parseFloat(getComputedStyle(editor).paddingTop) || 0;
+            const previewPadTop = parseFloat(getComputedStyle(preview).paddingTop) || 0;
+            const y = editor.scrollTop + editorPadTop;
+
+            const { idx, ratioInLine } = findVisibleLine(mirrorLines, y);
+            const dstLine = previewLines[idx];
+            if (!dstLine) return;
+
+            preview.scrollTop =
+                dstLine.offsetTop + dstLine.offsetHeight * ratioInLine - previewPadTop;
+        }
+
+        function requestSyncPreviewToEditorScroll() {
+            cancelAnimationFrame(syncPreviewRaf);
+            syncPreviewRaf = requestAnimationFrame(syncPreviewToEditorScroll);
+        }
 
         // 区切り単位ごとに分割（各unitが原文中のどの位置から始まるか記録）
         function splitUnits(text, mode) {
@@ -531,13 +643,30 @@
             return result.filter(u => u.text);
         }
 
-
         function updatePreview() {
             const lines = editor.value.split('\n');
             preview.innerHTML = lines.map((line, i) =>
-                `<span class="preview-line" data-line="${i}">${applyRuby(line)}</span>`
+                `<span class="preview-line" data-line="${i}">${applyRuby(line) || '&#8203;'}</span>`
             ).join('');
+
+            mirrorDirty = true;
             updatePreviewHighlight();
+            requestSyncPreviewToEditorScroll();
+        }
+
+        function ensurePreviewLineVisible(lineIndex) {
+            const el = preview.querySelector(`.preview-line[data-line="${lineIndex}"]`);
+            if (!el) return;
+
+            const margin = 40;
+            const top = el.offsetTop;
+            const bottom = top + el.offsetHeight;
+
+            if (top < preview.scrollTop + margin) {
+                preview.scrollTop = Math.max(0, top - margin);
+            } else if (bottom > preview.scrollTop + preview.clientHeight - margin) {
+                preview.scrollTop = bottom - preview.clientHeight + margin;
+            }
         }
 
         function updatePreviewHighlight() {
@@ -560,6 +689,8 @@
                     if (el) el.classList.add('selected');
                 }
             }
+
+            ensurePreviewLineVisible(startLine);
         }
 
         function startPlayer() {
@@ -575,10 +706,8 @@
         }
 
         function rebuildUnits() {
-            // 切り替え前に現在位置の原文オフセットを覚えておく
             const prevOffset = (units.length && units[currentIndex]) ? units[currentIndex].start : 0;
             units = splitUnits(editor.value, unitModeSel.value);
-            // 同じ文字位置を含む（あるいは直前の）unitに飛ぶ
             let newIndex = 0;
             for (let i = 0; i < units.length; i++) {
                 if (units[i].start <= prevOffset) newIndex = i;
@@ -589,20 +718,18 @@
             saveSettings();
         }
 
-
         function renderPlayer() {
             playerText.innerHTML = units.map((u, i) => {
                 let cls = 'unread';
                 if (i < currentIndex) cls = 'read';
                 else if (i === currentIndex) cls = 'current';
                 const span = `<span class="unit ${cls}" data-i="${i}">${applyRuby(u.text)}</span>`;
-                return span + (u.br ? '<br>' : ' ');
+                return span + (u.br ? '<br>' : '');
             }).join('');
             progress.textContent = `${currentIndex + 1} / ${units.length}`;
             const cur = playerText.querySelector('.current');
             if (cur) cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
-
 
         function next() {
             if (currentIndex < units.length - 1) {
@@ -614,6 +741,7 @@
                 }
             }
         }
+
         function prev() {
             if (currentIndex > 0) {
                 currentIndex--;
@@ -635,6 +763,7 @@
             playerText.style.setProperty('--font-size', fontSize + 'px');
             saveSettings();
         }
+
         function toggleDark() {
             player.classList.toggle('dark');
             saveSettings();
@@ -646,7 +775,6 @@
             let selected = editor.value.substring(start, end);
             editor.focus();
 
-            // 選択なし：その場に《》を挿入してカーソルを中に
             if (!selected) {
                 document.execCommand('insertText', false, '《》');
                 editor.selectionStart = editor.selectionEnd = start + 1;
@@ -655,7 +783,6 @@
                 return;
             }
 
-            // 選択範囲の前後の空白・句読点をトリム
             const trimmed = selected.replace(/^[\s、。「」『』（）\(\)]+|[\s、。「」『』（）\(\)]+$/g, '');
             if (!trimmed) return;
             const leftPad = selected.indexOf(trimmed);
@@ -674,19 +801,16 @@
             const isAllKanji = /^[\p{Script=Han}々〆〇]+$/u.test(trimmed);
             const wrapped = (isAllKanji ? '' : '｜') + trimmed + '《》';
 
-            // 一旦正確な範囲を選択し直してから insertText で置換（Undo履歴に残る）
             editor.selectionStart = realStart;
             editor.selectionEnd = realEnd;
             document.execCommand('insertText', false, wrapped);
 
-            // カーソルを《》の中に
             const cursorPos = realStart + wrapped.length - 1;
             editor.selectionStart = editor.selectionEnd = cursorPos;
             updatePreview();
             localStorage.setItem(STORAGE_KEY, editor.value);
         }
 
-        // エディタ用ショートカット：Ctrl+Enter で選択範囲をルビで囲む
         editor.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'Enter') {
                 e.preventDefault();
@@ -694,7 +818,6 @@
             }
         });
 
-        // 再生モード用キー操作
         document.addEventListener('keydown', (e) => {
             if (!player.classList.contains('active')) return;
             const isVertical = player.classList.contains('vertical');
@@ -714,10 +837,6 @@
             }
         });
 
-
-
-
-        // 文クリックでその位置にジャンプ
         playerText.addEventListener('click', (e) => {
             const span = e.target.closest('.unit');
             if (span) {
@@ -726,7 +845,6 @@
             }
         });
 
-        // スワイプで前後移動
         let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
         let isSwiping = false;
 
@@ -740,7 +858,6 @@
         playerContent.addEventListener('touchmove', (e) => {
             const dx = e.touches[0].clientX - touchStartX;
             const dy = e.touches[0].clientY - touchStartY;
-            // 横方向の動きが明確に大きければスワイプ判定
             if (Math.abs(dx) > 20 && Math.abs(dx) > Math.abs(dy) * 1.5) {
                 isSwiping = true;
             }
@@ -757,35 +874,38 @@
             const isVertical = player.classList.contains('vertical');
 
             if (isVertical) {
-                // 縦書き：上下スワイプで進む/戻る
-                // （縦書きは横スクロールするので、縦方向はスクロールと競合しない）
                 if (absY < 30) return;
-                if (absY < absX * 1.2) return;  // 横の方が大きければ無視
-                // 下スワイプで次、上スワイプで戻る
+                if (absY < absX * 1.2) return;
                 dy > 0 ? next() : prev();
             } else {
-                // 横書き：右スワイプで次、左スワイプで戻る
                 if (absX < 30) return;
-                if (absX < absY * 1.2) return;  // 縦の方が大きければ無視（スクロール優先）
+                if (absX < absY * 1.2) return;
                 dx > 0 ? next() : prev();
             }
         });
 
-        // 自動保存（デバウンス：入力が止まってから処理）
         let saveTimer;
         let previewTimer;
+
         function showSaved() {
             saveStatus.textContent = '保存しました';
             clearTimeout(saveTimer);
             saveTimer = setTimeout(() => { saveStatus.textContent = ''; }, 1500);
         }
+
         editor.addEventListener('input', () => {
-            // プレビュー更新は300ms待ってから
+            if (sampleBackup !== null) {
+                sampleBackup = null;
+                const sampleBtn = document.getElementById('sampleBtn');
+                sampleBtn.textContent = '使い方';
+                sampleBtn.dataset.tip = 'サンプル原稿を読み込む（今の原稿は退避されます）';
+            }
+
             clearTimeout(previewTimer);
             previewTimer = setTimeout(() => {
                 updatePreview();
             }, 300);
-            // 保存も500ms待ってから
+
             clearTimeout(saveTimer);
             saveStatus.textContent = '…';
             saveTimer = setTimeout(() => {
@@ -802,19 +922,21 @@
         editor.addEventListener('click', updatePreviewHighlight);
         editor.addEventListener('select', updatePreviewHighlight);
 
-
         function saveSettings() {
             localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-                fontSize, unitMode: unitModeSel.value,
+                fontSize,
+                unitMode: unitModeSel.value,
                 dark: player.classList.contains('dark'),
                 vertical: player.classList.contains('vertical')
             }));
         }
 
-
         function loadSettings() {
             const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-            if (s.fontSize) { fontSize = s.fontSize; playerText.style.setProperty('--font-size', fontSize + 'px'); }
+            if (s.fontSize) {
+                fontSize = s.fontSize;
+                playerText.style.setProperty('--font-size', fontSize + 'px');
+            }
             if (s.unitMode) unitModeSel.value = s.unitMode;
             if (s.dark) player.classList.add('dark');
             if (s.vertical) {
@@ -824,20 +946,18 @@
             playerText.style.setProperty('--font-size', fontSize + 'px');
         }
 
-
         function clearText() {
-            if (!editor.value) return;  // すでに空なら何もしない
+            if (!editor.value) return;
             if (confirm('原稿を消去します。よろしいですか？\n（Ctrl+Z で元に戻せます）')) {
                 editor.focus();
-                editor.select();  // 全選択
-                document.execCommand('insertText', false, '');  // 空で置換
-                // localStorage は input イベントで自動更新されるので不要
+                editor.select();
+                document.execCommand('insertText', false, '');
             }
         }
 
-
         const toast = document.getElementById('toast');
         let toastTimer;
+
         function showToast(msg) {
             toast.textContent = msg;
             toast.classList.add('show');
@@ -878,7 +998,6 @@
             currentIndex = index;
             renderPlayer();
 
-            // ルビ記法を読み上げ用に処理（ふりがなを読ませる）
             const text = units[index].text
                 .replace(/｜([^《\n]+)《([^》]+)》/g, '$2')
                 .replace(/([\p{Script=Han}々〆〇]+)《([^》]+)》/gu, '$2');
@@ -897,13 +1016,11 @@
             document.getElementById('speakBtn').textContent = '読み上げ';
         }
 
-
-        // trim の代わりに使う：末尾だけ削る、先頭の全角/半角スペースは残す
         function trimEndOnly(s) {
             return s.replace(/\s+$/, '');
         }
 
-        let sampleBackup = null; // サンプル前の原稿を退避
+        let sampleBackup = null;
 
         const SAMPLE_TEXT = `【使い方】
 ・原稿を貼り付けて「▶ 再生モード」へ
@@ -926,13 +1043,11 @@
             const sampleBtn = document.getElementById('sampleBtn');
 
             if (sampleBackup === null) {
-                // 「サンプル」を押した：今の内容を退避してサンプルを表示
                 sampleBackup = editor.value;
                 editor.value = SAMPLE_TEXT;
                 sampleBtn.textContent = '原稿に戻る';
                 sampleBtn.dataset.tip = '使い方を見る前の原稿に戻す';
             } else {
-                // 「元に戻す」を押した：退避した内容を復帰
                 editor.value = sampleBackup;
                 sampleBackup = null;
                 sampleBtn.textContent = '使い方';
@@ -942,18 +1057,6 @@
             localStorage.setItem(STORAGE_KEY, editor.value);
         }
 
-        // 編集されたらトグル状態を解除（戻すボタンを通常に戻す）
-        editor.addEventListener('input', () => {
-            if (sampleBackup !== null) {
-                sampleBackup = null;
-                const sampleBtn = document.getElementById('sampleBtn');
-                sampleBtn.textContent = '使い方';
-                sampleBtn.dataset.tip = 'サンプル原稿を読み込む（今の原稿は退避されます）';
-            }
-        });
-
-
-        // 起動時：保存済みがあれば復元、なければサンプル
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             editor.value = saved;
@@ -979,7 +1082,6 @@
             const reader = new FileReader();
             reader.onload = (ev) => {
                 const buffer = ev.target.result;
-                // まずUTF-8で試して、文字化け（U+FFFD）が多ければShift_JISで読み直す
                 let text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
                 const garbled = (text.match(/\uFFFD/g) || []).length;
                 if (garbled > 5) {
@@ -999,29 +1101,12 @@
             e.target.value = '';
         }
 
+        editor.addEventListener('scroll', requestSyncPreviewToEditorScroll);
 
-        let isSyncing = false;  // 無限ループ防止
-
-        function syncScroll(source, target) {
-            if (window.innerWidth <= 900) return;
-            if (isSyncing) return;
-            isSyncing = true;
-
-            const sourceMax = source.scrollHeight - source.clientHeight;
-            const targetMax = target.scrollHeight - target.clientHeight;
-
-            if (sourceMax > 0 && targetMax > 0) {
-                const ratio = source.scrollTop / sourceMax;
-                target.scrollTop = ratio * targetMax;
-            }
-
-            // 同期完了後にフラグを戻す
-            requestAnimationFrame(() => { isSyncing = false; });
-        }
-
-        editor.addEventListener('scroll', () => syncScroll(editor, preview));
-        preview.addEventListener('scroll', () => syncScroll(preview, editor));
-
+        window.addEventListener('resize', () => {
+            mirrorDirty = true;
+            requestSyncPreviewToEditorScroll();
+        });
     </script>
 
     <script>
@@ -1031,8 +1116,6 @@
             });
         }
     </script>
-
-
 </body>
 
 </html>
