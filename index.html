@@ -325,6 +325,26 @@
             line-height: 1.9;
         }
 
+        .preview-line {
+            display: block;
+            /* 行ごとにブロック化 */
+            padding: 0 4px;
+            border-radius: 2px;
+            transition: background 0.15s;
+            min-height: 1em;
+        }
+
+        .preview-line.cursor {
+            background: rgba(255, 220, 100, 0.25);
+            /* カーソル行：薄い黄色 */
+        }
+
+        .preview-line.selected {
+            background: rgba(100, 180, 255, 0.25);
+            /* 選択範囲：薄い青 */
+        }
+
+
         /* 縦書き時はルビが行の右に出るので調整 */
         .player.vertical .player-text ruby rt {
             font-size: 0.4em;
@@ -513,7 +533,33 @@
 
 
         function updatePreview() {
-            preview.innerHTML = applyRuby(editor.value);
+            const lines = editor.value.split('\n');
+            preview.innerHTML = lines.map((line, i) =>
+                `<span class="preview-line" data-line="${i}">${applyRuby(line)}</span>`
+            ).join('');
+            updatePreviewHighlight();
+        }
+
+        function updatePreviewHighlight() {
+            preview.querySelectorAll('.preview-line').forEach(el => {
+                el.classList.remove('cursor', 'selected');
+            });
+
+            const text = editor.value;
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            const startLine = text.substring(0, start).split('\n').length - 1;
+            const endLine = text.substring(0, end).split('\n').length - 1;
+
+            if (start === end) {
+                const el = preview.querySelector(`.preview-line[data-line="${startLine}"]`);
+                if (el) el.classList.add('cursor');
+            } else {
+                for (let i = startLine; i <= endLine; i++) {
+                    const el = preview.querySelector(`.preview-line[data-line="${i}"]`);
+                    if (el) el.classList.add('selected');
+                }
+            }
         }
 
         function startPlayer() {
@@ -732,6 +778,10 @@
             localStorage.setItem(STORAGE_KEY, editor.value);
             showSaved();
         });
+        editor.addEventListener('keyup', updatePreviewHighlight);
+        editor.addEventListener('click', updatePreviewHighlight);
+        editor.addEventListener('select', updatePreviewHighlight);
+
 
         function saveSettings() {
             localStorage.setItem(SETTINGS_KEY, JSON.stringify({
@@ -891,16 +941,7 @@
             loadSample();
         }
         loadSettings();
-    </script>
 
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('sw.js');
-            });
-        }
-    </script>
-    <script>
         function exportText() {
             const blob = new Blob([editor.value], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -925,6 +966,36 @@
             e.target.value = ''; // 同じファイルを再選択できるように
         }
 
+        let isSyncing = false;  // 無限ループ防止
+
+        function syncScroll(source, target) {
+            if (window.innerWidth <= 900) return;
+            if (isSyncing) return;
+            isSyncing = true;
+
+            const sourceMax = source.scrollHeight - source.clientHeight;
+            const targetMax = target.scrollHeight - target.clientHeight;
+
+            if (sourceMax > 0 && targetMax > 0) {
+                const ratio = source.scrollTop / sourceMax;
+                target.scrollTop = ratio * targetMax;
+            }
+
+            // 同期完了後にフラグを戻す
+            requestAnimationFrame(() => { isSyncing = false; });
+        }
+
+        editor.addEventListener('scroll', () => syncScroll(editor, preview));
+        preview.addEventListener('scroll', () => syncScroll(preview, editor));
+
+    </script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js');
+            });
+        }
     </script>
 
 
