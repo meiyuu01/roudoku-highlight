@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>朗読ハイライト</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2a2a2a">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+            background: #fafaf7;
+            color: #222;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app {
+            display: flex;
+            height: 100vh;
+        }
+
+        .pane {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .pane.editor {
+            border-right: 1px solid #e5e5e0;
+            background: #fff;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .toolbar h2 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #888;
+            margin-right: auto;
+            letter-spacing: 0.05em;
+        }
+
+        button,
+        select {
+            background: #f0efea;
+            border: 1px solid #ddd;
+            color: #333;
+            padding: 6px 14px;
+            font-size: 13px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: background 0.15s;
+        }
+
+        button:hover {
+            background: #e8e7e0;
+        }
+
+        button.primary {
+            background: #2a2a2a;
+            color: #fff;
+            border-color: #2a2a2a;
+        }
+
+        button.primary:hover {
+            background: #444;
+        }
+
+        textarea {
+            width: 100%;
+            height: calc(100% - 60px);
+            border: 1px solid #e5e5e0;
+            border-radius: 4px;
+            padding: 16px;
+            font-size: 15px;
+            line-height: 1.8;
+            font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+            resize: none;
+            background: #fff;
+            color: #222;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #888;
+        }
+
+        .preview-content {
+            font-size: 18px;
+            line-height: 2.2;
+            padding: 8px;
+            white-space: pre-wrap;
+        }
+
+        .preview-content ruby rt {
+            font-size: 0.5em;
+            color: #666;
+        }
+
+        .save-status {
+            font-size: 11px;
+            color: #aaa;
+            margin-left: 8px;
+        }
+
+        /* 再生モード */
+        .player {
+            position: fixed;
+            inset: 0;
+            background: #fafaf7;
+            display: none;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .player.active {
+            display: flex;
+        }
+
+        .player.dark {
+            background: #1a1a1a;
+            color: #e8e8e8;
+        }
+
+        .player.dark .unit.read {
+            color: #555;
+        }
+
+        .player.dark .unit.current {
+            color: #fff;
+        }
+
+        .player.dark .unit.unread {
+            color: #888;
+        }
+
+        .player.dark .preview-content ruby rt {
+            color: #aaa;
+        }
+
+        .player-bar {
+            display: flex;
+            gap: 8px;
+            padding: 12px 24px;
+            border-bottom: 1px solid #e5e5e0;
+            align-items: center;
+            font-size: 13px;
+            color: #888;
+            flex-wrap: wrap;
+        }
+
+        .player.dark .player-bar {
+            border-color: #333;
+        }
+
+        .player-bar .progress {
+            margin-right: auto;
+        }
+
+        .player-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 80px max(48px, 10vw);
+        }
+
+        .player-text {
+            font-size: var(--font-size, 28px);
+            line-height: 2.4;
+            max-width: 800px;
+            margin: 0 auto;
+            user-select: none;
+            white-space: pre-wrap;
+        }
+
+        .player-text ruby rt {
+            font-size: 0.4em;
+            color: #888;
+        }
+
+        .unit {
+            transition: color 0.3s;
+            cursor: pointer;
+        }
+
+        .unit.read {
+            color: #c8c8c4;
+        }
+
+        .unit.current {
+            color: #000;
+            font-weight: 500;
+        }
+
+        .unit.unread {
+            color: #999;
+        }
+
+        .hint {
+            text-align: center;
+            color: #aaa;
+            font-size: 12px;
+            padding: 12px;
+            border-top: 1px solid #e5e5e0;
+        }
+
+        .player.dark .hint {
+            border-color: #333;
+            color: #666;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(40, 40, 40, 0.92);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 13px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .player.vertical .player-content {
+            /* 縦書きでは横スクロールに */
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: max(48px, 8vh) 80px;
+        }
+
+        .player.vertical .player-text {
+            writing-mode: vertical-rl;
+            -webkit-writing-mode: vertical-rl;
+            height: 100%;
+            max-width: none;
+            max-height: 800px;
+            margin: 0 auto;
+            line-height: 1.9;
+        }
+
+        /* 縦書き時はルビが行の右に出るので調整 */
+        .player.vertical .player-text ruby rt {
+            font-size: 0.4em;
+        }
+
+        /* 縦書き時の <br> は改行扱いになる（行が変わる）*/
+    </style>
+</head>
+
+<body>
+    <div id="toast" class="toast"></div>
+    <div class="app">
+        <div class="pane editor">
+            <div class="toolbar">
+                <h2>原稿</h2>
+                <span class="save-status" id="saveStatus"></span>
+                <button onclick="loadSample()">サンプル</button>
+                <button onclick="wrapRuby()" title="選択範囲をルビで囲む（Ctrl+Enter）">《ルビ》</button>
+                <button onclick="clearText()">クリア</button>
+            </div>
+            <textarea id="editor" placeholder="ここに原稿を貼り付けてください。
+ルビは 漢字《かんじ》 のように《》で振れます。
+ひらがな等にもルビを振りたい場合は ｜任意の範囲《ふりがな》"></textarea>
+        </div>
+
+        <div class="pane preview">
+            <div class="toolbar">
+                <h2>プレビュー</h2>
+                <button class="primary" onclick="startPlayer()">▶ 再生モード</button>
+            </div>
+            <div id="preview" class="preview-content"></div>
+        </div>
+    </div>
+
+    <div id="player" class="player">
+        <div class="player-bar">
+            <span class="progress" id="progress">0 / 0</span>
+            <label style="font-size:12px;">区切り
+                <select id="unitMode" onchange="rebuildUnits()">
+                    <option value="sentence">文</option>
+                    <option value="paragraph">段落</option>
+                    <option value="comma">読点</option>
+                </select>
+            </label>
+            <button onclick="changeFontSize(-2)">A−</button>
+            <button onclick="changeFontSize(2)">A＋</button>
+            <button onclick="toggleDark()">配色</button>
+            <button id="verticalBtn" onclick="toggleVertical()">縦書き</button>
+            <button onclick="exitPlayer()">閉じる</button>
+        </div>
+        <div class="player-content" id="playerContent">
+            <div id="playerText" class="player-text"></div>
+        </div>
+        <div class="hint">Space / Enter / ↓ / → : 次へ　　↑ / ← : 戻る　　Esc : 終了</div>
+    </div>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const preview = document.getElementById('preview');
+        const player = document.getElementById('player');
+        const playerText = document.getElementById('playerText');
+        const playerContent = document.getElementById('playerContent');
+        const progress = document.getElementById('progress');
+        const saveStatus = document.getElementById('saveStatus');
+        const unitModeSel = document.getElementById('unitMode');
+
+        const STORAGE_KEY = 'rouduku_text_v1';
+        const SETTINGS_KEY = 'rouduku_settings_v1';
+
+        let units = [];
+        let currentIndex = 0;
+        let fontSize = 28;
+
+        // ルビ記法を <ruby> に変換
+        function applyRuby(text) {
+            text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // ｜範囲《ふりがな》
+            text = text.replace(/｜([^《\n]+)《([^》]+)》/g,
+                '<ruby>$1<rt>$2</rt></ruby>');
+            // 漢字の連続《ふりがな》
+            text = text.replace(/([\p{Script=Han}々〆〇]+)《([^》]+)》/gu,
+                '<ruby>$1<rt>$2</rt></ruby>');
+            return text;
+        }
+
+
+        // 区切り単位ごとに分割（各unitが原文中のどの位置から始まるか記録）
+        function splitUnits(text, mode) {
+            const result = [];
+
+            if (mode === 'paragraph') {
+                let buf = '';
+                let unitStart = 0;
+                for (let i = 0; i < text.length; i++) {
+                    const ch = text[i];
+                    if (ch === '\n') {
+                        if (buf.trim()) {
+                            result.push({ text: trimEndOnly(buf), br: true, start: unitStart });
+                        }
+                        buf = '';
+                        unitStart = i + 1;
+                        continue;
+                    }
+                    if (!buf) unitStart = i;
+                    buf += ch;
+                }
+                if (buf.trim()) {
+                    result.push({ text: trimEndOnly(buf), br: true, start: unitStart });
+                }
+                return result;
+            }
+
+            const breakChars = mode === 'comma' ? '。！？!?、，,' : '。！？!?';
+            let buf = '';
+            let unitStart = 0;
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                if (ch === '\n') {
+                    if (buf.trim()) {
+                        result.push({ text: trimEndOnly(buf), br: true, start: unitStart });
+                        buf = '';
+                    } else if (result.length) {
+                        result[result.length - 1].br = true;
+                    }
+                    unitStart = i + 1;
+                    continue;
+                }
+                if (!buf) unitStart = i;
+                buf += ch;
+                if (breakChars.includes(ch)) {
+                    if (buf.trim()) {
+                        result.push({ text: trimEndOnly(buf), br: false, start: unitStart });
+                    }
+                    buf = '';
+                    unitStart = i + 1;
+                }
+            }
+            if (buf.trim()) {
+                result.push({ text: trimEndOnly(buf), br: false, start: unitStart });
+            }
+            return result.filter(u => u.text);
+        }
+
+
+        function updatePreview() {
+            preview.innerHTML = applyRuby(editor.value);
+        }
+
+        function startPlayer() {
+            rebuildUnits();
+            if (units.length === 0) {
+                showToast('原稿が空です');
+                return;
+            }
+            currentIndex = 0;
+            renderPlayer();
+            player.classList.add('active');
+            if (document.activeElement) document.activeElement.blur();
+        }
+
+        function rebuildUnits() {
+            // 切り替え前に現在位置の原文オフセットを覚えておく
+            const prevOffset = (units.length && units[currentIndex]) ? units[currentIndex].start : 0;
+            units = splitUnits(editor.value, unitModeSel.value);
+            // 同じ文字位置を含む（あるいは直前の）unitに飛ぶ
+            let newIndex = 0;
+            for (let i = 0; i < units.length; i++) {
+                if (units[i].start <= prevOffset) newIndex = i;
+                else break;
+            }
+            currentIndex = newIndex;
+            if (player.classList.contains('active')) renderPlayer();
+            saveSettings();
+        }
+
+
+        function renderPlayer() {
+            playerText.innerHTML = units.map((u, i) => {
+                let cls = 'unread';
+                if (i < currentIndex) cls = 'read';
+                else if (i === currentIndex) cls = 'current';
+                const span = `<span class="unit ${cls}" data-i="${i}">${applyRuby(u.text)}</span>`;
+                return span + (u.br ? '<br>' : ' ');
+            }).join('');
+            progress.textContent = `${currentIndex + 1} / ${units.length}`;
+            const cur = playerText.querySelector('.current');
+            if (cur) cur.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+
+        function next() {
+            if (currentIndex < units.length - 1) { currentIndex++; renderPlayer(); }
+        }
+        function prev() {
+            if (currentIndex > 0) { currentIndex--; renderPlayer(); }
+        }
+        function exitPlayer() { player.classList.remove('active'); }
+        function changeFontSize(d) {
+            fontSize = Math.max(14, Math.min(80, fontSize + d));
+            playerText.style.setProperty('--font-size', fontSize + 'px');
+            saveSettings();
+        }
+        function toggleDark() {
+            player.classList.toggle('dark');
+            saveSettings();
+        }
+
+        function wrapRuby() {
+            const start = editor.selectionStart;
+            const end = editor.selectionEnd;
+            let selected = editor.value.substring(start, end);
+            editor.focus();
+
+            // 選択なし：その場に《》を挿入してカーソルを中に
+            if (!selected) {
+                document.execCommand('insertText', false, '《》');
+                editor.selectionStart = editor.selectionEnd = start + 1;
+                updatePreview();
+                localStorage.setItem(STORAGE_KEY, editor.value);
+                return;
+            }
+
+            // 選択範囲の前後の空白・句読点をトリム
+            const trimmed = selected.replace(/^[\s、。「」『』（）\(\)]+|[\s、。「」『』（）\(\)]+$/g, '');
+            if (!trimmed) return;
+            const leftPad = selected.indexOf(trimmed);
+            const realStart = start + leftPad;
+            const realEnd = realStart + trimmed.length;
+
+            if (trimmed.includes('\n')) {
+                showToast('複数行をまたぐ選択にはルビを振れません');
+                return;
+            }
+            if (trimmed.includes('《') || trimmed.includes('》') || trimmed.includes('｜')) {
+                showToast('既にルビ記号を含む範囲です');
+                return;
+            }
+
+            const isAllKanji = /^[\p{Script=Han}々〆〇]+$/u.test(trimmed);
+            const wrapped = (isAllKanji ? '' : '｜') + trimmed + '《》';
+
+            // 一旦正確な範囲を選択し直してから insertText で置換（Undo履歴に残る）
+            editor.selectionStart = realStart;
+            editor.selectionEnd = realEnd;
+            document.execCommand('insertText', false, wrapped);
+
+            // カーソルを《》の中に
+            const cursorPos = realStart + wrapped.length - 1;
+            editor.selectionStart = editor.selectionEnd = cursorPos;
+            updatePreview();
+            localStorage.setItem(STORAGE_KEY, editor.value);
+        }
+
+        // エディタ用ショートカット：Ctrl+Enter で選択範囲をルビで囲む
+        editor.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                wrapRuby();
+            }
+        });
+
+        // 再生モード用キー操作
+        document.addEventListener('keydown', (e) => {
+            if (!player.classList.contains('active')) return;
+            const isVertical = player.classList.contains('vertical');
+
+            if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowDown') {
+                e.preventDefault(); next();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault(); prev();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                isVertical ? next() : prev();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                isVertical ? prev() : next();
+            } else if (e.key === 'Escape') {
+                exitPlayer();
+            }
+        });
+
+
+
+
+        // 文クリックでその位置にジャンプ
+        playerText.addEventListener('click', (e) => {
+            const span = e.target.closest('.unit');
+            if (span) {
+                currentIndex = parseInt(span.dataset.i);
+                renderPlayer();
+            }
+        });
+
+        // 自動保存
+        let saveTimer;
+        function showSaved() {
+            saveStatus.textContent = '保存しました';
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(() => { saveStatus.textContent = ''; }, 1500);
+        }
+        editor.addEventListener('input', () => {
+            updatePreview();
+            localStorage.setItem(STORAGE_KEY, editor.value);
+            showSaved();
+        });
+
+        function saveSettings() {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+                fontSize, unitMode: unitModeSel.value,
+                dark: player.classList.contains('dark'),
+                vertical: player.classList.contains('vertical')
+            }));
+        }
+
+
+        function loadSettings() {
+            const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+            if (s.fontSize) { fontSize = s.fontSize; playerText.style.setProperty('--font-size', fontSize + 'px'); }
+            if (s.unitMode) unitModeSel.value = s.unitMode;
+            if (s.dark) player.classList.add('dark');
+            if (s.vertical) {
+                player.classList.add('vertical');
+                document.getElementById('verticalBtn').textContent = '横書き';
+            }
+        }
+
+
+        function clearText() {
+            if (confirm('原稿を消去します。よろしいですか？')) {
+                editor.value = '';
+                localStorage.removeItem(STORAGE_KEY);
+                updatePreview();
+            }
+        }
+
+        const toast = document.getElementById('toast');
+        let toastTimer;
+        function showToast(msg) {
+            toast.textContent = msg;
+            toast.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        function toggleVertical() {
+            player.classList.toggle('vertical');
+            const isVertical = player.classList.contains('vertical');
+            document.getElementById('verticalBtn').textContent = isVertical ? '横書き' : '縦書き';
+            saveSettings();
+            const cur = playerText.querySelector('.current');
+            if (cur) cur.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+        }
+
+        // trim の代わりに使う：末尾だけ削る、先頭の全角/半角スペースは残す
+        function trimEndOnly(s) {
+            return s.replace(/\s+$/, '');
+        }
+
+
+
+        function loadSample() {
+            editor.value = `【使い方】
+・原稿を貼り付けて「▶ 再生モード」へ
+・Space / → / ↓ で次へ、← / ↑ で戻る、Esc で終了
+・文をクリックでその位置にジャンプ
+
+【ルビの書き方】
+・漢字《かんじ》… 漢字部分に自動でルビが付きます
+・例：下人《げにん》、羅生門《らしょうもん》
+・｜任意の範囲《ふりがな》… ｜で始めると、ひらがな等を含む任意の範囲にルビを振れます
+・例：｜虎視眈々《こしたんたん》、｜お神酒《おみき》
+
+──────────
+
+或日《あるひ》の暮方の事である。一人の下人《げにん》が、羅生門《らしょうもん》の下で雨やみを待っていた。
+広い門の下には、この男のほかに誰もいない。ただ、所々丹塗《にぬり》の剥げた、大きな円柱《まるばしら》に、蟋蟀《きりぎりす》が一匹とまっている。
+羅生門が、朱雀大路《すざくおおじ》にある以上は、この男のほかにも、雨やみをする市女笠《いちめがさ》や揉烏帽子《もみえぼし》が、もう二三人はありそうなものである。それが、この男のほかには誰もいない。`;
+            updatePreview();
+            localStorage.setItem(STORAGE_KEY, editor.value);
+        }
+
+
+        // 起動時：保存済みがあれば復元、なければサンプル
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            editor.value = saved;
+            updatePreview();
+        } else {
+            loadSample();
+        }
+        loadSettings();
+    </script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js');
+            });
+        }
+    </script>
+
+</body>
+
+</html>
