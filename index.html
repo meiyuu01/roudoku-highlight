@@ -771,18 +771,33 @@
             }
         });
 
-        // 自動保存
+        // 自動保存（デバウンス：入力が止まってから処理）
         let saveTimer;
+        let previewTimer;
         function showSaved() {
             saveStatus.textContent = '保存しました';
             clearTimeout(saveTimer);
             saveTimer = setTimeout(() => { saveStatus.textContent = ''; }, 1500);
         }
         editor.addEventListener('input', () => {
-            updatePreview();
-            localStorage.setItem(STORAGE_KEY, editor.value);
-            showSaved();
+            // プレビュー更新は300ms待ってから
+            clearTimeout(previewTimer);
+            previewTimer = setTimeout(() => {
+                updatePreview();
+            }, 300);
+            // 保存も500ms待ってから
+            clearTimeout(saveTimer);
+            saveStatus.textContent = '…';
+            saveTimer = setTimeout(() => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, editor.value);
+                    showSaved();
+                } catch (err) {
+                    saveStatus.textContent = '保存失敗（容量超過？）';
+                }
+            }, 500);
         });
+
         editor.addEventListener('keyup', updatePreviewHighlight);
         editor.addEventListener('click', updatePreviewHighlight);
         editor.addEventListener('select', updatePreviewHighlight);
@@ -963,14 +978,27 @@
             if (!file) return;
             const reader = new FileReader();
             reader.onload = (ev) => {
-                editor.value = ev.target.result;
+                const buffer = ev.target.result;
+                // まずUTF-8で試して、文字化け（U+FFFD）が多ければShift_JISで読み直す
+                let text = new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+                const garbled = (text.match(/\uFFFD/g) || []).length;
+                if (garbled > 5) {
+                    try {
+                        text = new TextDecoder('shift_jis').decode(buffer);
+                    } catch (err) {
+                        showToast('文字コードを判別できませんでした');
+                        return;
+                    }
+                }
+                editor.value = text;
                 updatePreview();
                 localStorage.setItem(STORAGE_KEY, editor.value);
                 showToast('読み込みました');
             };
-            reader.readAsText(file, 'utf-8');
-            e.target.value = ''; // 同じファイルを再選択できるように
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
         }
+
 
         let isSyncing = false;  // 無限ループ防止
 
