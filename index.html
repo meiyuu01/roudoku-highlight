@@ -426,7 +426,7 @@
             <label style="font-size:12px;">区切り
                 <select id="unitMode" onchange="rebuildUnits()">
                     <option value="sentence">文</option>
-                    <option value="paragraph">段落</option>
+                    <option value="paragraph" selected>段落</option>
                     <option value="comma">読点</option>
                 </select>
             </label>
@@ -753,18 +753,23 @@
             const absX = Math.abs(dx), absY = Math.abs(dy);
 
             if (dt > 1000) return;
-            if (absX < 30) return;                       // 横の動きが30px未満は無視
-            if (absX < absY * 1.2) return;               // 縦の方が大きければ無視（スクロール優先）
 
             const isVertical = player.classList.contains('vertical');
-            if (isVertical) return;                      // 縦書き時は横スワイプも無効
 
-            // 横書き：右スワイプで次、左スワイプで戻る
-            dx > 0 ? next() : prev();
+            if (isVertical) {
+                // 縦書き：上下スワイプで進む/戻る
+                // （縦書きは横スクロールするので、縦方向はスクロールと競合しない）
+                if (absY < 30) return;
+                if (absY < absX * 1.2) return;  // 横の方が大きければ無視
+                // 下スワイプで次、上スワイプで戻る
+                dy > 0 ? next() : prev();
+            } else {
+                // 横書き：右スワイプで次、左スワイプで戻る
+                if (absX < 30) return;
+                if (absX < absY * 1.2) return;  // 縦の方が大きければ無視（スクロール優先）
+                dx > 0 ? next() : prev();
+            }
         });
-
-
-
 
         // 自動保存
         let saveTimer;

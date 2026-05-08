@@ -44,7 +44,6 @@
 ## 技術
 
 - HTML / CSS / JavaScript
-- 外部依存なし
 - ホスティング：Cloudflare Pages
 
 ## ライセンス
