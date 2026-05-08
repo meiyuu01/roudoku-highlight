@@ -309,6 +309,7 @@
             <button onclick="changeFontSize(-2)">A−</button>
             <button onclick="changeFontSize(2)">A＋</button>
             <button onclick="toggleDark()">配色</button>
+            <button id="speakBtn" onclick="toggleSpeak()">🔊 読み上げ</button>
             <button id="verticalBtn" onclick="toggleVertical()">縦書き</button>
             <button onclick="exitPlayer()">閉じる</button>
         </div>
@@ -334,6 +335,7 @@
         let units = [];
         let currentIndex = 0;
         let fontSize = 28;
+        let isSpeaking = false;
 
         // ルビ記法を <ruby> に変換
         function applyRuby(text) {
@@ -453,12 +455,31 @@
 
 
         function next() {
-            if (currentIndex < units.length - 1) { currentIndex++; renderPlayer(); }
+            if (currentIndex < units.length - 1) {
+                currentIndex++;
+                renderPlayer();
+                if (isSpeaking) {
+                    speechSynthesis.cancel();
+                    speakUnit(currentIndex);
+                }
+            }
         }
         function prev() {
-            if (currentIndex > 0) { currentIndex--; renderPlayer(); }
+            if (currentIndex > 0) {
+                currentIndex--;
+                renderPlayer();
+                if (isSpeaking) {
+                    speechSynthesis.cancel();
+                    speakUnit(currentIndex);
+                }
+            }
         }
-        function exitPlayer() { player.classList.remove('active'); }
+
+        function exitPlayer() {
+            stopSpeak();
+            player.classList.remove('active');
+        }
+
         function changeFontSize(d) {
             fontSize = Math.max(14, Math.min(80, fontSize + d));
             playerText.style.setProperty('--font-size', fontSize + 'px');
@@ -614,6 +635,50 @@
             const cur = playerText.querySelector('.current');
             if (cur) cur.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
         }
+
+        function toggleSpeak() {
+            if (isSpeaking) {
+                stopSpeak();
+            } else {
+                startSpeak();
+            }
+        }
+
+        function startSpeak() {
+            if (units.length === 0) return;
+            isSpeaking = true;
+            document.getElementById('speakBtn').textContent = '⏸ 停止';
+            speakUnit(currentIndex);
+        }
+
+        function speakUnit(index) {
+            if (!isSpeaking) return;
+            if (index >= units.length) {
+                stopSpeak();
+                return;
+            }
+            currentIndex = index;
+            renderPlayer();
+
+            // ルビ記法を読み上げ用に処理（ふりがなを読ませる）
+            const text = units[index].text
+                .replace(/｜([^《\n]+)《([^》]+)》/g, '$2')
+                .replace(/([\p{Script=Han}々〆〇]+)《([^》]+)》/gu, '$2');
+
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'ja-JP';
+            u.rate = 1.0;
+            u.onend = () => speakUnit(index + 1);
+            u.onerror = () => stopSpeak();
+            speechSynthesis.speak(u);
+        }
+
+        function stopSpeak() {
+            isSpeaking = false;
+            speechSynthesis.cancel();
+            document.getElementById('speakBtn').textContent = '🔊 読み上げ';
+        }
+
 
         // trim の代わりに使う：末尾だけ削る、先頭の全角/半角スペースは残す
         function trimEndOnly(s) {
