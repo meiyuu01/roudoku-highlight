@@ -458,7 +458,7 @@
 
         let units = [];
         let currentIndex = 0;
-        let fontSize = 22;
+        let fontSize = window.innerWidth <= 900 ? 16 : 22;
         let isSpeaking = false;
 
         // ルビ記法を <ruby> に変換
